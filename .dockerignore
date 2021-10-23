@@ -1,0 +1,10 @@
+*.pickle
+docker_vol/
+catboost_info/
+notebooks/
+app/data/
+.venv/
+.pytest_cache/
+.ipynb_checkpoints/
+.env
+local-*

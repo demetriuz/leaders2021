@@ -1,0 +1,14 @@
+*.pyo
+*.pyc
+*.orig
+*.pid
+*.pickle
+*~
+.idea
+.ipynb_checkpoints
+.venv
+.DS_Store
+.env
+local-*
+
+notebooks

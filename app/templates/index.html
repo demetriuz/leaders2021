@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Лидеры Цифровой Трансформации 2021 – команда LZRK</title>
+    <script
+  src="https://code.jquery.com/jquery-3.6.0.min.js"
+  integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4="
+  crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            font-family: "Segoe UI",Roboto,Oxygen,Ubuntu,Cantarell,"Fira Sans","Droid Sans","Helvetica Neue",Helvetica,Arial,sans-serif;
+        }
+
+        form input { font-size: 50px; }
+        form button {font-size: 50px; cursor: pointer; background: none; border: none; }
+
+        ul { padding: 0px; margin: 0px; }
+        ul li { list-style-type: none; }
+        .item-id a{ font-size: 10px; color: gray;}
+
+        .tiles {
+          display: grid;
+          grid-gap: 15px;
+          grid-template-columns: repeat(auto-fit, 200px);
+        }
+
+        .tile {
+            background: linear-gradient(90deg,rgba(0,0,0,.07) -.01%,rgba(0,0,0,.02) 1.99%,rgba(0,0,0,.06) 3%,rgba(0,0,0,.2) 5%,transparent 6%,rgba(0,0,0,.11) 7%,rgba(0,0,0,.08) 100.01%);
+            padding: 0 5px 5px 20px;
+            height: 200px;
+            max-width: 150px;
+            overflow: hidden;
+        }
+        .tile h2 {
+            font-size: 14px;
+        }
+
+    </style>
+</head>
+<body>
+
+<h1>Лидеры Цифровой Трансформации 2021 – команда LZRK</h1>
+
+<form>
+    <label for="user-id">ID читателя:</label><br>
+    <input type="text" id="user-id" value="1">
+    <button type="submit" id="get-recoms">🔎</button>
+</form>
+
+Чтобы получить рекомендации, введите ID читателя и нажмите 🔎
+
+<h2>Рекомендации</h2>
+
+<section id="recommendations">
+    <div class="tiles"></div>
+</section>
+
+<h2>История</h2>
+<section id="history">
+    <div class="tiles"></div>
+</section>
+
+<script language="JavaScript">
+    $(function(){
+
+        function render_item(item){
+            return `<div class="tile">
+                <span class="item-id"><a href="https://www.mos.ru/knigi/book/${item.id}/" target="_blank">#${item.id}</a></span>
+                <h2>${item.title}</h2>
+                <ul>
+                    <li>${item.author}</li>
+                </ul>
+            </div>`
+        }
+
+        function get_recommendations(user_id){
+            $("#recommendations .tiles").html("загрузка...");
+            $("#history .tiles").html("загрузка...");
+
+            $.getJSON("/recommendations/"+user_id, function(data) {
+                $("#recommendations .tiles").html("");
+                $("#history .tiles").html("");
+
+                $.each(data.recommendations, function(idx, item){
+                    if (item.author == 'nan'){
+                        item.author = '';
+                    }
+                    $("#recommendations .tiles").append(render_item(item));
+                });
+                $.each(data.history, function(idx, item){
+                    $("#history .tiles").append(render_item(item));
+                });
+
+            }).fail(function() {
+                $("#recommendations .tiles").html("");
+                $("#history .tiles").html("");
+                alert("Некорректный ID пользователя");
+            });
+        }
+
+        $(document).on("user-id", function(e) {
+            if(e.which == 13) {
+                get_recommendations($("#user-id").val());
+            }
+        });
+
+        $("form").submit(function(e){
+            e.preventDefault();
+            get_recommendations($("#user-id").val());
+            return false;
+        });
+    });
+</script>
+</body>
+</html>
