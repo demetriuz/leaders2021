@@ -1,29 +1,37 @@
+import csv
+import pandas as pd
 import predict
 import settings
-import pandas as pd
+import tqdm
+
+
+FROM_USER_ID = 0
 
 
 def main():
     predictor = predict.Predictor()
 
-    knigi_df = pd.read_pickle(f'{settings.PREPARED_DATA_PATH}/knigi_df.pickle')
+    df = pd.read_pickle(f'{settings.PREPARED_DATA_PATH}/interaction_df.pickle')
 
-    recs_list = []
+    readerID_list = sorted(df[df['readerID'] > FROM_USER_ID]['readerID'].unique())
 
-    for user_id in knigi_df.readerID.unique():
-        print(f'get recommendations for user: {user_id}')
+    with open(f'{settings.PREPARED_DATA_PATH}/submission_full.csv', 'a+') as f:
+        writer = csv.writer(f, delimiter=';')
 
-        history = predictor.get_history(user_id)
-        recommendations = predictor.recommend(history=history)
+        if FROM_USER_ID == 0:
+            writer.writerow(['user_id', 'book_id_1', 'book_id_2', 'book_id_3', 'book_id_4', 'book_id_5'])
 
-        books_id_map = {f'book_id_{i+1}': recommendations.iloc[i].recId for i in range(5)}
-        recs_ = pd.DataFrame(data={'user_id': [user_id], **books_id_map})
+        i = 0
+        for user_id in tqdm.tqdm(readerID_list, total=len(readerID_list)):
+            history = predictor.get_history(user_id)
+            age = predictor.get_age(user_id)
+            recommendations = predictor.recommend(history=history, user_age=age)
 
-        recs_list.append(recs_)
+            writer.writerow([user_id] + [recommendations.iloc[i].recId for i in range(5)])
 
-    res = pd.concat(recs_list)
-    res.to_csv(f'{settings.PREPARED_DATA_PATH}/submission.csv', sep=';', index=False)
-    return res
+            i += 1
+            # if i > 10:
+            #     break
 
 
 if __name__ == '__main__':

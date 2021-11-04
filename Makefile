@@ -23,3 +23,9 @@ nodocker-run-server:
 
 nodocker-fill-submission:
 	python ./app/fill_submission.py
+
+nodocker-evaluate:
+	python ./app/evaluate.py
+
+nodocker-make-validation-dict:
+	python ./app/make_validation_dict.py
