@@ -16,11 +16,20 @@ class Predictor:
         self.books_df = books_df
         self.books_df_collapsed = books_df.drop_duplicates('collapse_id')
 
-        interaction_df = pd.read_pickle(f'{settings.PREPARED_DATA_PATH}/interaction_df.pickle')
+        # TODO: config
+        interaction_df = pd.read_pickle(f'{settings.PREPARED_DATA_PATH}/interaction_df_train.pickle')
+        interaction_df_full = pd.read_pickle(f'{settings.PREPARED_DATA_PATH}/interaction_df.pickle')
 
         self.interaction_df = interaction_df.merge(
             self.books_df_collapsed[['title', 'collapse_id', 'year_value', 'author_fullName', 'author_id',
-                                    'rubric_id', 'ageRestriction_id', 'outputCount']],
+                                     'rubric_id', 'ageRestriction_id', 'outputCount']],
+            on=['collapse_id'],
+            how='left'
+        )
+
+        self.interaction_df_full = interaction_df_full.merge(
+            self.books_df_collapsed[['title', 'collapse_id', 'year_value', 'author_fullName', 'author_id',
+                                     'rubric_id', 'ageRestriction_id', 'outputCount']],
             on=['collapse_id'],
             how='left'
         )
@@ -83,7 +92,7 @@ class Predictor:
         # выберем книги из той же рубрики
         lfm_books_df = lfm_books_df[lfm_books_df['rubric_id'] == last_record.rubric_id]
 
-        # корректируем рекомендации в зависимости от возрастных ограничений
+        # # корректируем рекомендации в зависимости от возрастных ограничений
         allowed_age_restrictions_map = {
             0: [0, 6630, 6634, 6633],  # not defined
             6632: [6631, 6632],  # 18+
@@ -103,7 +112,7 @@ class Predictor:
         """ Возвращает историю пользователя. Любые взаимодействия. """
 
         return (
-            self.interaction_df[self.interaction_df['readerID'] == user_id]
+            self.interaction_df_full[self.interaction_df_full['readerID'] == user_id]
             .sort_values('startDate', ascending=True)  # последние - свежие
         )
 

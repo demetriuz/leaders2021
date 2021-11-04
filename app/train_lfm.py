@@ -7,6 +7,22 @@ import settings
 
 def get_data():
     interaction_df = pd.read_pickle(f'{settings.PREPARED_DATA_PATH}/interaction_df.pickle')
+
+    print('Before filtering: ', interaction_df.shape[0])
+
+    validation_dict = pd.read_pickle(f'{settings.PREPARED_DATA_PATH}/validation_dict.pickle')
+    for user, items in validation_dict.items():
+        interaction_df = interaction_df[
+            ~(
+                (interaction_df['readerID'] == user) &
+                (interaction_df['collapse_id'].isin(items))
+            )
+        ]
+
+    interaction_df.to_pickle(f'{settings.PREPARED_DATA_PATH}/interaction_df_train.pickle')
+
+    print('After filtering: ', interaction_df.shape[0])
+
     interaction_df = interaction_df.rename(columns={'readerID': 'user', 'collapse_id': 'item'})
     interaction_df = interaction_df[['user', 'item']]
 
