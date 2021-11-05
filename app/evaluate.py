@@ -1,5 +1,3 @@
-from itertools import chain
-
 import predict
 from tqdm import tqdm
 import pandas as pd

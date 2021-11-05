@@ -43,7 +43,7 @@ def train_lfm(dataset, interaction_df):
     model = LightFM(loss='warp', random_state=42)
     model.fit(
         interactions,
-        epochs=300
+        epochs=50
     )
     return model
 

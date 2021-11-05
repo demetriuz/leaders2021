@@ -32,9 +32,9 @@ predictor = predict.Predictor()
 @app.get("/recommendations/{user_id}", response_model=RecommendationsModel)
 async def get_recommendations(user_id: int):
     history = predictor.get_history(user_id)
-    print('age_clusters ->', predictor.get_age_distribution(history))
+    user_age = predictor.get_age(user_id)
 
-    recommendations = predictor.recommend(history=history)
+    recommendations = predictor.recommend(history=history, user_age=user_age)
 
     return RecommendationsModel(
         recommendations=[

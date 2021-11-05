@@ -1,7 +1,27 @@
 import gc
+from datetime import datetime, date
 
 import pandas as pd
 import settings
+
+
+def prepare_readers():
+    readers_df = pd.read_csv(f'{settings.RAW_DATA_PATH}/readers.csv',
+                             delimiter=';', encoding='cp1251',
+                             names=['readerId', 'birthday'], usecols=[0, 1])
+
+    readers_df = readers_df.dropna()
+
+    def calculate_age(born):
+        try:
+            born = datetime.strptime(born, "%d.%m.%Y").date()
+        except ValueError:
+            born = datetime.strptime(born, "%Y-%m-%d %H:%M:%S").date()
+        today = date.today()
+        return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+
+    readers_df['age'] = readers_df['birthday'].apply(calculate_age)
+    return readers_df
 
 
 def prepare_books_full(circulation_df, knigi_df):
@@ -68,18 +88,24 @@ def prepare_books_full(circulation_df, knigi_df):
 
 def load_circulation_df():
     circulation_df_list = []
+    circulation_cols = ['readerID', 'catalogueRecordID', 'startDate', 'state']
+
     for i in range(1, 17):
         print(f'Read circulaton_{i}.csv')
-        circulation_df_tmp = pd.read_csv(f'{settings.RAW_DATA_PATH}/circulaton_{i}.csv', delimiter=';', encoding='cp1251')
+        circulation_df_tmp = (
+            pd.read_csv(f'{settings.RAW_DATA_PATH}/circulaton_{i}.csv', delimiter=';', encoding='cp1251')
+            [circulation_cols]
+        )
         circulation_df_list.append(circulation_df_tmp)
 
     circulation_df = pd.concat(circulation_df_list)
     gc.collect(2)
 
-    circulation_df = circulation_df[['readerID', 'catalogueRecordID', 'startDate', 'state']]
-    circulation_df = circulation_df[circulation_df.state == 'На руках']
-
+    circulation_df = circulation_df[circulation_cols]
     circulation_df['startDate'] = pd.to_datetime(circulation_df['startDate'])
+
+    circulation_df = circulation_df.sort_values('startDate', ascending=True)  # последние - свежие
+    circulation_df = circulation_df.drop_duplicates(['readerID', 'catalogueRecordID'])
     circulation_df = circulation_df.rename(columns={'catalogueRecordID': 'recId'})
     circulation_df = circulation_df[['readerID', 'recId', 'startDate']]
 
@@ -105,7 +131,7 @@ def create_interaction_df(circulation_df, knigi_df, books_full_df):
     interaction_df = interaction_df.merge(
         books_full_df[['recId', 'collapse_id', 'ageRestriction']],
         on=['recId'],
-        how='left'
+        how='inner'  # некоторых книг нет в books_full_df
     )
 
     interaction_df['collapse_id'] = interaction_df.apply(
@@ -117,6 +143,10 @@ def create_interaction_df(circulation_df, knigi_df, books_full_df):
 
 
 if __name__ == '__main__':
+    print('prepare readers_df')
+    readers_df = prepare_readers()
+    readers_df.to_pickle(f'{settings.PREPARED_DATA_PATH}/readers_df.pickle')
+
     print('load_knigi_df...')
     knigi_df = load_knigi_df()
     knigi_df.to_pickle(f'{settings.PREPARED_DATA_PATH}/knigi_df.pickle')
@@ -138,10 +168,16 @@ if __name__ == '__main__':
     interaction_df[INTERACTION_DF_COLS].to_pickle(f'{settings.PREPARED_DATA_PATH}/interaction_df.pickle')
 
     interaction_df_gte16 = interaction_df[interaction_df['ageRestriction'] >= 16]
+
     print('\tinteractions with age >= 16 size:', interaction_df_gte16.shape[0])
     (
         interaction_df_gte16[INTERACTION_DF_COLS]
         .to_pickle(f'{settings.PREPARED_DATA_PATH}/interaction_df_gte16.pickle')
+    )
+
+    pd.to_pickle(
+        interaction_df_gte16.collapse_id.unique(),
+        f'{settings.PREPARED_DATA_PATH}/interaction_df_gte16_collapse_id.pickle'
     )
 
     interaction_df_lt16 = interaction_df[
@@ -152,4 +188,9 @@ if __name__ == '__main__':
     (
         interaction_df_lt16[INTERACTION_DF_COLS]
         .to_pickle(f'{settings.PREPARED_DATA_PATH}/interaction_df_lt16.pickle')
+    )
+
+    pd.to_pickle(
+        interaction_df_lt16.collapse_id.unique(),
+        f'{settings.PREPARED_DATA_PATH}/interaction_df_lt16_collapse_id.pickle'
     )
