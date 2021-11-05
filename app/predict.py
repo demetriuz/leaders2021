@@ -38,6 +38,21 @@ class Predictor:
         self.lfm_model_lt16 = pd.read_pickle(f'{settings.MODELS_DATA_PATH}/lfm-model-lt16.pickle')
         self.lfm_model_gte16 = pd.read_pickle(f'{settings.MODELS_DATA_PATH}/lfm-model-gte16.pickle')
 
+    def get_age_distribution(self, history):
+        history = history[history['ageRestriction'] != -1]
+        stat = (
+            history.groupby('ageRestriction')
+            .agg({'ageRestriction': 'count'})
+            .rename(columns={'ageRestriction': 'count'})
+            .reset_index()
+        )
+        stat['ratio'] = stat['count'] / history.shape[0]
+
+        return {
+            'gte16': stat[stat['ageRestriction'] >= 16]['ratio'].sum(),
+            'lt16': stat[stat['ageRestriction'] < 16]['ratio'].sum()
+        }
+
     def get_recommends_by_author(self, author_id: str, known_collapse_id_list: typing.List[str]):
         """ Возвращает популярные книги автора, с которыми пользователь еще не взаимодействовал  """
 
@@ -155,6 +170,24 @@ class Predictor:
 
         known_collapse_id_list = list(history.collapse_id)
         res = pd.DataFrame()
+
+        age_distribution = self.get_age_distribution(history)
+
+        # брать последние книги из этих кластеров и рекомендовать по ним
+        if age_distribution['gte16'] <= 0.25:
+            history_gte16 = history[history['ageRestriction'] >= 16].tail(1)
+            history_lt16 = history[history['ageRestriction'] < 16].tail(2)
+        elif age_distribution['gte16'] <= 0.5:
+            history_gte16 = history[history['ageRestriction'] >= 16].tail(2)
+            history_lt16 = history[history['ageRestriction'] < 16].tail(1)
+        else:
+            history_gte16 = history[history['ageRestriction'] >= 16].tail(3)
+            history_lt16 = history[history['ageRestriction'] < 16].tail(0)
+
+        age_awared_history = pd.concat([history_gte16, history_lt16])
+        history = history[~history['collapse_id'].isin(age_awared_history['collapse_id'])]
+
+        history = pd.concat([history, age_awared_history])
 
         # пробуем получить 3 рекомендации по 3-м последним книгам в истории
         for i in range(-1, -len(history) - 1, -1):
