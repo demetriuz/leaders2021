@@ -11,31 +11,32 @@ class Predictor:
 
     def __init__(self):
         books_features = ['recId', 'title', 'collapse_id', 'year_value', 'author_fullName', 'author_id',
-                          'rubric_id', 'ageRestriction_id', 'outputCount']
+                          'rubric_id', 'ageRestriction_id', 'ageRestriction', 'outputCount']
         books_df = pd.read_pickle(f'{settings.PREPARED_DATA_PATH}/books_full_df.pickle')[books_features]
         self.books_df = books_df
         self.books_df_collapsed = books_df.drop_duplicates('collapse_id')
 
-        # TODO: config
-        interaction_df = pd.read_pickle(f'{settings.PREPARED_DATA_PATH}/interaction_df_train.pickle')
-        interaction_df_full = pd.read_pickle(f'{settings.PREPARED_DATA_PATH}/interaction_df.pickle')
+        interaction_df_lt16 = pd.read_pickle(f'{settings.PREPARED_DATA_PATH}/interaction_df_lt16.pickle')
+        interaction_df_gte16 = pd.read_pickle(f'{settings.PREPARED_DATA_PATH}/interaction_df_gte16.pickle')
+        interaction_df = pd.read_pickle(f'{settings.PREPARED_DATA_PATH}/interaction_df.pickle')
 
-        self.interaction_df = interaction_df.merge(
-            self.books_df_collapsed[['title', 'collapse_id', 'year_value', 'author_fullName', 'author_id',
-                                     'rubric_id', 'ageRestriction_id', 'outputCount']],
-            on=['collapse_id'],
-            how='left'
-        )
+        def merge_books(interaction_df):
+            return interaction_df.merge(
+                self.books_df_collapsed[['title', 'collapse_id', 'year_value', 'author_fullName', 'author_id',
+                                         'rubric_id', 'ageRestriction_id', 'ageRestriction', 'outputCount']],
+                on=['collapse_id'],
+                how='left'
+            )
 
-        self.interaction_df_full = interaction_df_full.merge(
-            self.books_df_collapsed[['title', 'collapse_id', 'year_value', 'author_fullName', 'author_id',
-                                     'rubric_id', 'ageRestriction_id', 'outputCount']],
-            on=['collapse_id'],
-            how='left'
-        )
+        self.interaction_df_lt16 = merge_books(interaction_df_lt16)
+        self.interaction_df_gte16 = merge_books(interaction_df_gte16)
+        self.interaction_df = merge_books(interaction_df)
 
-        self.collapse_id_index = interaction_df.collapse_id.unique()
-        self.lfm_model = pd.read_pickle(f'{settings.MODELS_DATA_PATH}/lfm-model.pickle')
+        self.collapse_id_index_lt16 = self.interaction_df_lt16.collapse_id.unique()
+        self.collapse_id_index_gte16 = self.interaction_df_gte16.collapse_id.unique()
+
+        self.lfm_model_lt16 = pd.read_pickle(f'{settings.MODELS_DATA_PATH}/lfm-model-lt16.pickle')
+        self.lfm_model_gte16 = pd.read_pickle(f'{settings.MODELS_DATA_PATH}/lfm-model-gte16.pickle')
 
     def get_recommends_by_author(self, author_id: str, known_collapse_id_list: typing.List[str]):
         """ Возвращает популярные книги автора, с которыми пользователь еще не взаимодействовал  """
@@ -67,11 +68,21 @@ class Predictor:
         https://github.com/lyst/lightfm/issues/244
         """
 
+        if last_record['ageRestriction'] == -1:
+            return pd.DataFrame()
+
+        if last_record['ageRestriction'] >= 16:
+            collapse_id_index = self.collapse_id_index_gte16
+            lfm_model = self.lfm_model_gte16
+        else:
+            collapse_id_index = self.collapse_id_index_lt16
+            lfm_model = self.lfm_model_lt16
+
         # получение внутреннего индекса item-а в LightFM
-        item_id = np.where(self.collapse_id_index == last_record.collapse_id)[0][0]
+        item_id = np.where(collapse_id_index == last_record.collapse_id)[0][0]
 
         N = 1000
-        (_, item_representations) = self.lfm_model.get_item_representations()
+        (_, item_representations) = lfm_model.get_item_representations()
 
         # Cosine similarity
         scores = item_representations.dot(item_representations[item_id])
@@ -84,7 +95,7 @@ class Predictor:
 
         lfm_books_df = self.books_df_collapsed[
             self.books_df.collapse_id.isin(
-                np.array(self.collapse_id_index)[[idx for (idx, score) in best_indexes]]
+                np.array(collapse_id_index)[[idx for (idx, score) in best_indexes]]
             )
         ]
         lfm_books_df = lfm_books_df[~lfm_books_df['collapse_id'].isin(known_collapse_id_list)]
@@ -92,19 +103,22 @@ class Predictor:
         # выберем книги из той же рубрики
         lfm_books_df = lfm_books_df[lfm_books_df['rubric_id'] == last_record.rubric_id]
 
-        # # корректируем рекомендации в зависимости от возрастных ограничений
-        allowed_age_restrictions_map = {
-            0: [0, 6630, 6634, 6633],  # not defined
-            6632: [6631, 6632],  # 18+
-            6631: [6631, 6632],  # 16+
-            6633: [6634, 6633],  # 12+
-            6634: [6634, 6630],  # 6+
-            6630: [6630, 6634],  # 0+
-        }
-        if last_record.ageRestriction_id in allowed_age_restrictions_map.keys():
-            lfm_books_df = lfm_books_df[
-                lfm_books_df.ageRestriction_id.isin(allowed_age_restrictions_map[last_record.ageRestriction_id])
-            ]
+        if last_record['ageRestriction'] >= 16:
+            lfm_books_df = lfm_books_df[lfm_books_df['ageRestriction'] >= 16]
+        elif last_record['ageRestriction'] == 12:
+            lfm_books_df = lfm_books_df[lfm_books_df['ageRestriction'].between(6, 12)]
+        elif last_record['ageRestriction'] <= 6:
+            lfm_books_df = lfm_books_df[lfm_books_df['ageRestriction'] <= 6]
+
+        # import ipdb; ipdb.set_trace();
+        print('*'*100)
+        print('Book:')
+        print(last_record[['title', 'author_fullName']])
+        print('---')
+        print('Recommendation:')
+        print(lfm_books_df.head(1).iloc[0][['title', 'author_fullName']])
+        print('*'*100)
+        print('\n')
 
         return lfm_books_df.head(1)
 
@@ -112,7 +126,7 @@ class Predictor:
         """ Возвращает историю пользователя. Любые взаимодействия. """
 
         return (
-            self.interaction_df_full[self.interaction_df_full['readerID'] == user_id]
+            self.interaction_df[self.interaction_df['readerID'] == user_id]
             .sort_values('startDate', ascending=True)  # последние - свежие
         )
 
@@ -149,6 +163,9 @@ class Predictor:
                 last_record,
                 known_collapse_id_list=known_collapse_id_list
             )
+            if len(lfm_recommendations) == 0:
+                continue
+
             res = pd.concat([res, lfm_recommendations])
 
             known_collapse_id_list.extend(list(lfm_recommendations['collapse_id']))

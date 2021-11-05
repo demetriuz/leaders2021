@@ -1,3 +1,5 @@
+import gc
+
 import pandas as pd
 import settings
 
@@ -28,7 +30,32 @@ def prepare_books_full(circulation_df, knigi_df):
     ]
 
     books_full_df['title'] = books_full_df['title'].fillna('')
-    books_full_df['ageRestriction_id'] = books_full_df['ageRestriction_id'].fillna(0).astype(float).astype(int)
+    books_full_df['ageRestriction_id'] = books_full_df['ageRestriction_id'].fillna(-1).astype(float).astype(int)
+
+    AGE_RESTRICTION_MAP = {
+        -1: -1,
+        6630: 0,
+        6634: 6,
+        6633: 12,
+        6631: 16,
+        6632: 18
+    }
+
+    books_full_df['ageRestriction'] = books_full_df.apply(
+        lambda row: AGE_RESTRICTION_MAP[row['ageRestriction_id']],
+        axis=1
+    )
+    collapse_to_age_df = books_full_df.groupby('smart_collapse_field').agg({'ageRestriction': 'max'}).reset_index()
+
+    COLLAPSE_ID_TO_AGE_MAP = {}
+    for _, row in collapse_to_age_df.iterrows():
+        COLLAPSE_ID_TO_AGE_MAP[row['smart_collapse_field']] = row['ageRestriction']
+
+    books_full_df['ageRestriction'] = books_full_df.apply(
+        lambda row: COLLAPSE_ID_TO_AGE_MAP[row['smart_collapse_field']],
+        axis=1
+    )
+
     books_full_df['year_value'] = books_full_df['year_value'].fillna(0).astype(float).astype(int)
 
     books_full_df = books_full_df.rename(columns={
@@ -40,12 +67,14 @@ def prepare_books_full(circulation_df, knigi_df):
 
 
 def load_circulation_df():
-    circulation_df = pd.DataFrame()
-
+    circulation_df_list = []
     for i in range(1, 17):
         print(f'Read circulaton_{i}.csv')
         circulation_df_tmp = pd.read_csv(f'{settings.RAW_DATA_PATH}/circulaton_{i}.csv', delimiter=';', encoding='cp1251')
-        circulation_df = pd.concat([circulation_df, circulation_df_tmp])
+        circulation_df_list.append(circulation_df_tmp)
+
+    circulation_df = pd.concat(circulation_df_list)
+    gc.collect(2)
 
     circulation_df = circulation_df[['readerID', 'catalogueRecordID', 'startDate', 'state']]
     circulation_df = circulation_df[circulation_df.state == 'На руках']
@@ -74,12 +103,15 @@ def create_interaction_df(circulation_df, knigi_df, books_full_df):
     books_full_df = books_full_df.drop_duplicates(subset=['recId'])
 
     interaction_df = interaction_df.merge(
-        books_full_df[['recId', 'collapse_id']],
+        books_full_df[['recId', 'collapse_id', 'ageRestriction']],
         on=['recId'],
         how='left'
     )
 
-    interaction_df['collapse_id'] = interaction_df.apply(lambda row: row['collapse_id'] if isinstance(row['collapse_id'], str) else row['recId'], axis=1)
+    interaction_df['collapse_id'] = interaction_df.apply(
+        lambda row: row['collapse_id'] if isinstance(row['collapse_id'], str) else row['recId'],
+        axis=1
+    )
 
     return interaction_df
 
@@ -99,6 +131,25 @@ if __name__ == '__main__':
     books_full_df.to_pickle(f'{settings.PREPARED_DATA_PATH}/books_full_df.pickle')
 
     print('create_interaction_df...')
+    INTERACTION_DF_COLS = ['readerID', 'recId', 'startDate', 'collapse_id']
     interaction_df = create_interaction_df(circulation_df, knigi_df, books_full_df)
     print('interaction_df len:', len(interaction_df))
-    interaction_df.to_pickle(f'{settings.PREPARED_DATA_PATH}/interaction_df.pickle')
+
+    interaction_df[INTERACTION_DF_COLS].to_pickle(f'{settings.PREPARED_DATA_PATH}/interaction_df.pickle')
+
+    interaction_df_gte16 = interaction_df[interaction_df['ageRestriction'] >= 16]
+    print('\tinteractions with age >= 16 size:', interaction_df_gte16.shape[0])
+    (
+        interaction_df_gte16[INTERACTION_DF_COLS]
+        .to_pickle(f'{settings.PREPARED_DATA_PATH}/interaction_df_gte16.pickle')
+    )
+
+    interaction_df_lt16 = interaction_df[
+        (interaction_df['ageRestriction'] < 16) &
+        (interaction_df['ageRestriction'] != -1)
+    ]
+    print('\tinteractions with age < 16 size:', interaction_df_lt16.shape[0])
+    (
+        interaction_df_lt16[INTERACTION_DF_COLS]
+        .to_pickle(f'{settings.PREPARED_DATA_PATH}/interaction_df_lt16.pickle')
+    )
